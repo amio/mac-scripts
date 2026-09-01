@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if ! frontmost_app_info="$(
+  osascript -l JavaScript -e 'ObjC.import("AppKit"); const app = $.NSWorkspace.sharedWorkspace.frontmostApplication; if (app.processIdentifier === undefined) { throw new Error("Unable to resolve the frontmost application."); } [Number(app.processIdentifier), ObjC.unwrap(app.localizedName) || "Unknown", ObjC.unwrap(app.bundleIdentifier) || "Unknown"].join("\t")'
+)"; then
+  echo "Unable to resolve the frontmost application." >&2
+  exit 1
+fi
+
+IFS=$'\t' read -r root_pid app_name bundle_id <<< "${frontmost_app_info}"
+
+if [[ ! "${root_pid}" =~ ^[0-9]+$ ]]; then
+  echo "Invalid frontmost application PID: ${root_pid:-empty}" >&2
+  exit 1
+fi
+
+inspector_pid="$$"
+
+if summary="$(
+  ps -axo pid=,ppid=,rss= |
+  /usr/bin/awk \
+    -v root_pid="${root_pid}" \
+    -v exclude_pid="${inspector_pid}" \
+    '
+    function format_kib(kib) {
+      if (kib >= 1048576) {
+        return sprintf("%.2f GiB", kib / 1048576)
+      }
+      if (kib >= 1024) {
+        return sprintf("%.2f MiB", kib / 1024)
+      }
+      return sprintf("%d KiB", kib)
+    }
+
+    BEGIN {
+      OFS = "\t"
+    }
+
+    {
+      if ($1 !~ /^[0-9]+$/ || $2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/) {
+        next
+      }
+
+      pid = $1
+      ppid = $2
+
+      exists[pid] = 1
+      rss_by_pid[pid] = $3 + 0
+
+      child_no = ++child_count[ppid]
+      child_by_parent[ppid SUBSEP child_no] = pid
+    }
+
+    END {
+      if (!(root_pid in exists)) {
+        exit 42
+      }
+
+      seen[root_pid] = 1
+      queue[++queue_tail] = root_pid
+
+      while (queue_head < queue_tail) {
+        current = queue[++queue_head]
+        total_kib += rss_by_pid[current]
+        process_count++
+
+        for (child_no = 1; child_no <= child_count[current]; child_no++) {
+          child_pid = child_by_parent[current SUBSEP child_no]
+
+          if (child_pid == exclude_pid && exclude_pid != root_pid) {
+            continue
+          }
+
+          if (!seen[child_pid]) {
+            seen[child_pid] = 1
+            queue[++queue_tail] = child_pid
+          }
+        }
+      }
+
+      print total_kib, format_kib(total_kib), process_count
+    }
+    '
+)"; then
+  :
+else
+  awk_status=$?
+  if ((awk_status == 42)); then
+    echo "Application PID ${root_pid} disappeared while collecting process information." >&2
+  else
+    echo "Failed to analyze the process table (awk exit status: ${awk_status})." >&2
+  fi
+  exit 1
+fi
+
+IFS=$'\t' read -r total_kib total_display process_count <<< "${summary}"
+
+if [[ -z "${total_kib}" ]]; then
+  echo "Failed to calculate memory usage for PID ${root_pid}." >&2
+  exit 1
+fi
+
+printf 'Focused app: %s\n' "${app_name}"
+printf 'Bundle ID: %s\n' "${bundle_id}"
+printf 'Root PID: %s\n' "${root_pid}"
+printf 'Processes: %s\n' "${process_count}"
+printf 'Total RSS (root + descendants): %s (%s KiB)\n' "${total_display}" "${total_kib}"

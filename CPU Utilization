@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+
+# Show recent CPU utilization as a percentage
+
+ps -A -o %cpu=|awk -v n=$(sysctl -n hw.ncpu) '{s+=$1}END{printf "%.0f%%\n",s/n}'
