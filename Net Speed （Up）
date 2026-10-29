@@ -22,9 +22,9 @@ show_empty() {
 
 format_rate() {
   awk -v rate="$1" 'BEGIN {
-    if (rate >= 1000000000) printf "%.1f GB/s", rate / 1000000000
-    else if (rate >= 1000000) printf "%.1f MB/s", rate / 1000000
-    else if (rate >= 1000) printf "%.1f KB/s", rate / 1000
+    if (rate >= 1000000000) printf "%.0f GB/s", rate / 1000000000
+    else if (rate >= 1000000) printf "%.0f MB/s", rate / 1000000
+    else if (rate >= 1000) printf "%.0f KB/s", rate / 1000
     else printf "%.0f B/s", rate
   }'
 }

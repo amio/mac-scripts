@@ -1,0 +1,20 @@
+#!/bin/zsh
+
+domain="com.apple.finder"
+key="CreateDesktop"
+
+current=$(defaults read "$domain" "$key" 2>/dev/null || echo 1)
+
+case "$current" in
+    0|false|FALSE)
+        next=true
+        echo "显示桌面图标"
+        ;;
+    *)
+        next=false
+        echo "隐藏桌面图标"
+        ;;
+esac
+
+defaults write "$domain" "$key" -bool "$next"
+killall Finder

@@ -1,0 +1,43 @@
+#!/bin/bash
+
+# Required parameters:
+# @raycast.schemaVersion 1
+# @raycast.title Quickshot
+# @raycast.mode silent
+
+# Optional parameters:
+# @raycast.icon ▶︎
+
+# Documentation:
+# @raycast.description ~/git/quickshot
+# @raycast.author Amio
+# @raycast.authorURL https://amio.cn
+
+if ! command -v cjxl >/dev/null 2>&1; then
+  echo "Error: cjxl is required to save JPEG XL images." >&2
+  exit 1
+fi
+
+TEMP_FOLDER="/tmp/quick"
+APP_NAME=$(osascript -l JavaScript -e 'ObjC.import("AppKit"); ObjC.unwrap($.NSWorkspace.sharedWorkspace.frontmostApplication.localizedName)' 2>/dev/null)
+APP_NAME=${APP_NAME//\//-}
+case "$APP_NAME" in
+  ""|.|..) APP_NAME="Unknown" ;;
+esac
+TARGET_FOLDER="$HOME/git/quickshot/$APP_NAME"
+FILE_NAME="QS-$(date +%s)-$(head -c 2 /dev/urandom | xxd -p)"
+
+mkdir -p "$TARGET_FOLDER" "$TEMP_FOLDER" || exit 1
+
+screencapture -tpng "$TEMP_FOLDER/$FILE_NAME.png" || exit 1
+[ -f "$TEMP_FOLDER/$FILE_NAME.png" ] || exit 0
+nohup bash -c '
+  if { cjxl "$1" "$2" --distance=0.8 --effort=3 --quiet && mv -f "$2" "$3"; } 2>"$4"; then
+    rm -f "$4"
+  else
+    rm -f "$2"
+  fi
+' _ "$TEMP_FOLDER/$FILE_NAME.png" "$TARGET_FOLDER/.$FILE_NAME.tmp.jxl" \
+  "$TARGET_FOLDER/$FILE_NAME.jxl" "$TEMP_FOLDER/$FILE_NAME.log" </dev/null >/dev/null 2>&1 &
+
+echo "$FILE_NAME" # prevent leak
